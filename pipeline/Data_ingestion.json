@@ -11,6 +11,12 @@
 						"dependencyConditions": [
 							"Succeeded"
 						]
+					},
+					{
+						"activity": "current_timestamp",
+						"dependencyConditions": [
+							"Succeeded"
+						]
 					}
 				],
 				"policy": {
@@ -25,7 +31,7 @@
 					"source": {
 						"type": "AzureSqlSource",
 						"sqlReaderQuery": {
-							"value": "select * from @{pipeline().parameters.schema}.@{pipeline().parameters.table} where @{pipeline().parameters.cdc_column} > '@{activity('cdc').output.firstRow[0].cdc}'",
+							"value": "select * from @{pipeline().parameters.schema}.@{pipeline().parameters.table} where @{pipeline().parameters.cdc_column} > '@{activity('cdc').output.value[0].cdc}'",
 							"type": "Expression"
 						},
 						"queryTimeout": "02:00:00",
@@ -67,7 +73,7 @@
 								"type": "Expression"
 							},
 							"file": {
-								"value": "@concat(pipeline().parameters.table,'_',utcNow())",
+								"value": "@concat(pipeline().parameters.table,'_',variables('currentdate'))",
 								"type": "Expression"
 							}
 						}
@@ -106,19 +112,210 @@
 							"folder": "cdc_user",
 							"file": "cdc.json"
 						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "datacopied_or_not",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Copysqltobronze",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@greater(activity('Copysqltobronze').output.dataread,0)",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "delete_empty_file",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_Parquet_dynamic",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": "bronze",
+										"directory": {
+											"value": "@pipeline().parameters.table",
+											"type": "Expression"
+										},
+										"file": {
+											"value": "@concat(pipeline().parameters.table,'_',variables('currentdate'))",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "last_cdc_tobe_updated_copy",
+							"type": "Script",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "LS_Azuresql",
+								"type": "LinkedServiceReference"
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "select max(@{pipeline().parameters.cdc_column}) as cdc from @{pipeline().parameters.schema}.@{pipeline().parameters.table}",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						},
+						{
+							"name": "copylast_cdcto_bronze",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "last_cdc_tobe_updated_copy",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "JsonSource",
+									"additionalColumns": [
+										{
+											"name": "cdc",
+											"value": {
+												"value": "@activity('last_cdc_tobe_updated_copy').output.resultSets[0].rows[0].cdc",
+												"type": "Expression"
+											}
+										}
+									],
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": true,
+										"enablePartitionDiscovery": false
+									},
+									"formatSettings": {
+										"type": "JsonReadSettings"
+									}
+								},
+								"sink": {
+									"type": "JsonSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "JsonWriteSettings"
+									}
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_cdc",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": "bronze",
+										"folder": "cdc_user",
+										"file": "empty.json"
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_cdc",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": "bronze",
+										"folder": "cdc_user",
+										"file": "cdc.json"
+									}
+								}
+							]
+						}
+					]
+				}
+			},
+			{
+				"name": "current_timestamp",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "currentdate",
+					"value": {
+						"value": "@utcNow()",
+						"type": "Expression"
 					}
 				}
 			}
 		],
 		"parameters": {
 			"schema": {
-				"type": "string"
+				"type": "string",
+				"defaultValue": "dbo"
 			},
 			"table": {
-				"type": "string"
+				"type": "string",
+				"defaultValue": "dimuser"
 			},
 			"cdc_column": {
-				"type": "string"
+				"type": "string",
+				"defaultValue": "updated_at"
+			}
+		},
+		"variables": {
+			"lastcdc_tobe_updated": {
+				"type": "String"
+			},
+			"currentdate": {
+				"type": "String"
 			}
 		},
 		"annotations": []
