@@ -1,0 +1,15 @@
+{
+	"name": "azuredatafacananee",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "eastus",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "a5f350b4-714c-4798-99ba-ff55c3da7c9a",
+		"tenantId": "b52efc87-375c-4588-949c-85c956965f12"
+	}
+}
