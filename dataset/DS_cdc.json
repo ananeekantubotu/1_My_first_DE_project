@@ -9,10 +9,13 @@
 			"container": {
 				"type": "string"
 			},
-			"folder": {
+			"directory": {
 				"type": "string"
 			},
 			"file": {
+				"type": "string"
+			},
+			"subfolder": {
 				"type": "string"
 			}
 		},
@@ -26,7 +29,7 @@
 					"type": "Expression"
 				},
 				"folderPath": {
-					"value": "@dataset().folder",
+					"value": "@concat(dataset().directory,'/',dataset().subfolder)",
 					"type": "Expression"
 				},
 				"fileSystem": {

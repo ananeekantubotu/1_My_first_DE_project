@@ -1,5 +1,5 @@
 {
-	"name": "Data_ingestion",
+	"name": "Data_ingestion_loop",
 	"properties": {
 		"activities": [
 			{
@@ -347,6 +347,12 @@
 						"type": "Expression"
 					}
 				}
+			},
+			{
+				"name": "ForEach1",
+				"type": "ForEach",
+				"dependsOn": [],
+				"userProperties": []
 			}
 		],
 		"parameters": {
