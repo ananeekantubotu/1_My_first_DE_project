@@ -1,0 +1,290 @@
+{
+	"name": "Data_ingestion_loop_copy",
+	"properties": {
+		"activities": [
+			{
+				"name": "looping_tablename",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "get_table_names",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('get_table_names').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Copysqltobronze",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "current_timestamp",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "select * from @{item().source_schema}.@{item().source_table} where @{item().cdc_column} > '@{if(empty(pipeline().parameters.from_date),item().updated_at,pipeline().parameters.from_date)}'\n\n",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
+								},
+								"sink": {
+									"type": "ParquetSink",
+									"storeSettings": {
+										"type": "AzureBlobFSWriteSettings"
+									},
+									"formatSettings": {
+										"type": "ParquetWriteSettings"
+									}
+								},
+								"enableStaging": false,
+								"translator": {
+									"type": "TabularTranslator",
+									"typeConversion": true,
+									"typeConversionSettings": {
+										"allowDataTruncation": true,
+										"treatBooleanAsNumber": false
+									}
+								}
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_sql",
+									"type": "DatasetReference"
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_ADLS_gen2",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": {
+											"value": "@item().target_container",
+											"type": "Expression"
+										},
+										"folder": {
+											"value": "@item().target_folder",
+											"type": "Expression"
+										},
+										"file": {
+											"value": "@concat(item().source_table,'_',variables('currentdate'))",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "datacopied_or_not",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "Copysqltobronze",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@greater(activity('Copysqltobronze').output.dataread,0)",
+									"type": "Expression"
+								},
+								"ifFalseActivities": [
+									{
+										"name": "delete_empty_file",
+										"type": "Delete",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"dataset": {
+												"referenceName": "DS_ADLS_gen2",
+												"type": "DatasetReference",
+												"parameters": {
+													"container": {
+														"value": "@item().target_container",
+														"type": "Expression"
+													},
+													"folder": {
+														"value": "@item().target_folder",
+														"type": "Expression"
+													},
+													"file": {
+														"value": "@concat(item().source_table,'_',variables('currentdate'))",
+														"type": "Expression"
+													}
+												}
+											},
+											"enableLogging": false,
+											"storeSettings": {
+												"type": "AzureBlobFSReadSettings",
+												"recursive": true,
+												"enablePartitionDiscovery": false
+											}
+										}
+									}
+								],
+								"ifTrueActivities": [
+									{
+										"name": "latest_watermark",
+										"type": "Script",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"linkedServiceName": {
+											"referenceName": "LS_Azuresql",
+											"type": "LinkedServiceReference"
+										},
+										"typeProperties": {
+											"scripts": [
+												{
+													"type": "Query",
+													"text": {
+														"value": "select max(@{item().cdc_column}) as cdc from @{item().source_schema}.@{item().source_table} where @{item().cdc_column} > '@{item().updated_at}'",
+														"type": "Expression"
+													}
+												}
+											],
+											"scriptBlockExecutionTimeout": "02:00:00"
+										}
+									},
+									{
+										"name": "update_cdc_control_ETL",
+										"type": "Script",
+										"dependsOn": [
+											{
+												"activity": "latest_watermark",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "0.12:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30,
+											"secureOutput": false,
+											"secureInput": false
+										},
+										"userProperties": [],
+										"linkedServiceName": {
+											"referenceName": "LS_Azuresql",
+											"type": "LinkedServiceReference"
+										},
+										"typeProperties": {
+											"scripts": [
+												{
+													"type": "Query",
+													"text": {
+														"value": "update dbo.control_ETL set last_watermark = '@{activity('latest_watermark').output.resultSets[0].rows[0].cdc}', updated_at = getutcdate(), status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}' where source_table = '@{item().source_table}'",
+														"type": "Expression"
+													}
+												}
+											],
+											"scriptBlockExecutionTimeout": "02:00:00"
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "current_timestamp",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "currentdate",
+								"value": {
+									"value": "@utcNow()",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "get_table_names",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select a.source_schema,a.source_table,a.load_type,a.cdc_column,a.target_container,a.target_folder,b.last_watermark,b.last_run_pipeline_id,b.status,b.updated_at from control_ETL as b INNER join control_rawdata as a on a.source_table = b.source_table where a.is_active > 0",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_sql",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			}
+		],
+		"parameters": {
+			"from_date": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"lastcdc_tobe_updated": {
+				"type": "String"
+			},
+			"currentdate": {
+				"type": "String"
+			}
+		},
+		"annotations": []
+	}
+}
