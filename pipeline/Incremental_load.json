@@ -1,9 +1,9 @@
 {
-	"name": "Full_load",
+	"name": "Incremental_load",
 	"properties": {
 		"activities": [
 			{
-				"name": "Copy_full",
+				"name": "Copy_incremental",
 				"type": "Copy",
 				"dependsOn": [],
 				"policy": {
@@ -18,7 +18,7 @@
 					"source": {
 						"type": "AzureSqlSource",
 						"sqlReaderQuery": {
-							"value": "select * from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table}\n\n",
+							"value": "select * from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table} where @{pipeline().parameters.cdc_column} > '@{if(empty(pipeline().parameters.from_date),pipeline().parameters.updated_at,pipeline().parameters.from_date)}'\n\n",
 							"type": "Expression"
 						},
 						"queryTimeout": "02:00:00",
@@ -71,11 +71,11 @@
 				]
 			},
 			{
-				"name": "data copied or not_full",
+				"name": "data copied or not_incrmtl",
 				"type": "IfCondition",
 				"dependsOn": [
 					{
-						"activity": "Copy_full",
+						"activity": "Copy_incremental",
 						"dependencyConditions": [
 							"Succeeded"
 						]
@@ -84,7 +84,7 @@
 				"userProperties": [],
 				"typeProperties": {
 					"expression": {
-						"value": "@greater(activity('Copy_full').output.rowsCopied,0)",
+						"value": "@greater(activity('Copy_incremental').output.rowsCopied,0)",
 						"type": "Expression"
 					},
 					"ifFalseActivities": [
@@ -130,8 +130,8 @@
 					],
 					"ifTrueActivities": [
 						{
-							"name": "update_control_ETL_full",
-							"type": "Script",
+							"name": "last_watermark",
+							"type": "Lookup",
 							"dependsOn": [],
 							"policy": {
 								"timeout": "0.12:00:00",
@@ -141,52 +141,28 @@
 								"secureInput": false
 							},
 							"userProperties": [],
-							"linkedServiceName": {
-								"referenceName": "LS_Azuresql",
-								"type": "LinkedServiceReference"
-							},
 							"typeProperties": {
-								"scripts": [
-									{
-										"type": "Query",
-										"text": {
-											"value": "update dbo.control_ETL set status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}', updated_at = getutcdate(),is_initial_load_completed = 1 where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
-											"type": "Expression"
-										}
-									}
-								],
-								"scriptBlockExecutionTimeout": "02:00:00"
-							}
-						},
-						{
-							"name": "Full_fail_after_copy",
-							"type": "Fail",
-							"dependsOn": [
-								{
-									"activity": "update_control_ETL_full",
-									"dependencyConditions": [
-										"Failed"
-									]
-								}
-							],
-							"userProperties": [],
-							"typeProperties": {
-								"message": {
-									"value": "Full load Pipeline failed after copy",
-									"type": "Expression"
+								"source": {
+									"type": "AzureSqlSource",
+									"sqlReaderQuery": {
+										"value": "select max(@{pipeline().parameters.cdc_column}) as cdc from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table} where @{pipeline().parameters.cdc_column} > '@{pipeline().parameters.last_watermark}'",
+										"type": "Expression"
+									},
+									"queryTimeout": "02:00:00",
+									"partitionOption": "None"
 								},
-								"errorCode": {
-									"value": "10003",
-									"type": "Expression"
+								"dataset": {
+									"referenceName": "DS_sql",
+									"type": "DatasetReference"
 								}
 							}
 						},
 						{
-							"name": "error_update_control_ETL_full",
+							"name": "update_control_ETL_incrmtl",
 							"type": "Script",
 							"dependsOn": [
 								{
-									"activity": "Full_fail_after_copy",
+									"activity": "last_watermark",
 									"dependencyConditions": [
 										"Succeeded"
 									]
@@ -209,7 +185,63 @@
 									{
 										"type": "Query",
 										"text": {
-											"value": "update dbo.control_ETL set error_message = @{concat(activity('Full_fail_after_copy').output.errorCode,'_',activity('Full_fail_after_copy').output.message)} where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+											"value": "update dbo.control_ETL set status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}', updated_at = getutcdate(), last_Watermark = '@{activity('last_watermark').output.firstRow.cdc}' where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						},
+						{
+							"name": "incrmtl_fail_after_copy",
+							"type": "Fail",
+							"dependsOn": [
+								{
+									"activity": "update_control_ETL_incrmtl",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"message": {
+									"value": "Incremental load pipeline failed after copy",
+									"type": "Expression"
+								},
+								"errorCode": "10002"
+							}
+						},
+						{
+							"name": "error_update_control_etl",
+							"type": "Script",
+							"dependsOn": [
+								{
+									"activity": "incrmtl_fail_after_copy",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "LS_Azuresql",
+								"type": "LinkedServiceReference"
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "update dbo.control_ETL set error_message = @{concat(activity('incrmtl_fail_after_copy').output.errorCode,'_',activity('incrmtl_fail_after_copy').output.message)} where source_schema = @{pipeline().parameters.source_schema} and source_table = @{pipeline().parameters.source_table}",
 											"type": "Expression"
 										}
 									}
@@ -235,6 +267,18 @@
 				"type": "string"
 			},
 			"currentdate_file": {
+				"type": "string"
+			},
+			"from_date": {
+				"type": "string"
+			},
+			"cdc_column": {
+				"type": "string"
+			},
+			"updated_at": {
+				"type": "string"
+			},
+			"last_watermark": {
 				"type": "string"
 			}
 		},
