@@ -148,7 +148,7 @@
 														{
 															"type": "Query",
 															"text": {
-																"value": "update dbo.control_ETL set error_message = @{concat(activity('Full_fail_after_copy').output.errorCode,'_',activity('Full_fail_after_copy').output.message)} where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+																"value": "update dbo.control_ETL set error_message = @{concat(activity('Full_fail_after_copy').output.errorCode,'_',activity('Full_fail_after_copy').output.message)} where source_schema = '@{item().source_schema}' and source_table = '@{item().source_table}'",
 																"type": "Expression"
 															}
 														}
@@ -259,7 +259,7 @@
 														{
 															"type": "Query",
 															"text": {
-																"value": "update dbo.control_ETL set error_message = @{concat(activity('incrmtl_fail_after_copy').output.errorCode,'_',activity('incrmtl_fail_after_copy').output.message)} where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+																"value": "update dbo.control_ETL set error_message = @{concat(activity('incrmtl_fail_after_copy').output.errorCode,'_',activity('incrmtl_fail_after_copy').output.message)} where source_schema = '@{item().source_schema}' and source_table = '@{item().source_table}'",
 																"type": "Expression"
 															}
 														}
