@@ -1,0 +1,243 @@
+{
+	"name": "Full_load",
+	"properties": {
+		"activities": [
+			{
+				"name": "Copy_full",
+				"type": "Copy",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select * from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table}\n\n",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"sink": {
+						"type": "ParquetSink",
+						"storeSettings": {
+							"type": "AzureBlobFSWriteSettings"
+						},
+						"formatSettings": {
+							"type": "ParquetWriteSettings"
+						}
+					},
+					"enableStaging": false,
+					"translator": {
+						"type": "TabularTranslator",
+						"typeConversion": true,
+						"typeConversionSettings": {
+							"allowDataTruncation": true,
+							"treatBooleanAsNumber": false
+						}
+					}
+				},
+				"inputs": [
+					{
+						"referenceName": "DS_sql",
+						"type": "DatasetReference"
+					}
+				],
+				"outputs": [
+					{
+						"referenceName": "DS_ADLS_gen2",
+						"type": "DatasetReference",
+						"parameters": {
+							"container": {
+								"value": "@pipeline().parameters.target_container",
+								"type": "Expression"
+							},
+							"folder": {
+								"value": "@pipeline().parameters.target_folder",
+								"type": "Expression"
+							},
+							"file": {
+								"value": "@concat(pipeline().parameters.source_table,'_',pipeline().parameters.currentdate_file,'.parquet')",
+								"type": "Expression"
+							}
+						}
+					}
+				]
+			},
+			{
+				"name": "data copied or not_full",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "Copy_full",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@greater(activity('Copy_full').output.rowsCopied,0)",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "delete_empty_file",
+							"type": "Delete",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_ADLS_gen2",
+									"type": "DatasetReference",
+									"parameters": {
+										"container": {
+											"value": "@pipeline().parameters.target_container",
+											"type": "Expression"
+										},
+										"folder": {
+											"value": "@pipeline().parameters.target_folder",
+											"type": "Expression"
+										},
+										"file": {
+											"value": "@concat(pipeline().parameters.source_table,'_',pipeline().parameters.currentdate_file,'.parquet')",
+											"type": "Expression"
+										}
+									}
+								},
+								"enableLogging": false,
+								"storeSettings": {
+									"type": "AzureBlobFSReadSettings",
+									"recursive": true,
+									"enablePartitionDiscovery": false
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "update_control_ETL_full",
+							"type": "Script",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "LS_Azuresql",
+								"type": "LinkedServiceReference"
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "update dbo.control_ETL set status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}', updated_at = getutcdate(),is_initial_load_completed = 1 where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						},
+						{
+							"name": "Full_fail_after_copy",
+							"type": "Fail",
+							"dependsOn": [
+								{
+									"activity": "update_control_ETL_full",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"message": {
+									"value": "Full load Pipeline failed after copy",
+									"type": "Expression"
+								},
+								"errorCode": {
+									"value": "10003",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "error_update_control_ETL_full",
+							"type": "Script",
+							"dependsOn": [
+								{
+									"activity": "Full_fail_after_copy",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "LS_Azuresql",
+								"type": "LinkedServiceReference"
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "update dbo.control_ETL set error_message = @{concat(activity('Full_fail_after_copy').output.errorCode,'_',activity('Full_fail_after_copy').output.message)} where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"source_schema": {
+				"type": "string"
+			},
+			"source_table": {
+				"type": "string"
+			},
+			"target_container": {
+				"type": "string"
+			},
+			"target_folder": {
+				"type": "string"
+			},
+			"currentdate_file": {
+				"type": "string"
+			}
+		},
+		"annotations": []
+	}
+}
