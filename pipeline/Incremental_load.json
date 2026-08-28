@@ -18,7 +18,7 @@
 					"source": {
 						"type": "AzureSqlSource",
 						"sqlReaderQuery": {
-							"value": "select * from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table} where @{pipeline().parameters.cdc_column} > '@{if(empty(pipeline().parameters.from_date),pipeline().parameters.updated_at,pipeline().parameters.from_date)}'\n\n",
+							"value": "select * from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table} where @{pipeline().parameters.cdc_column} > '@{if(empty(pipeline().parameters.from_date),pipeline().parameters.last_watermark,pipeline().parameters.from_date)}'\n\n",
 							"type": "Expression"
 						},
 						"queryTimeout": "02:00:00",
@@ -192,62 +192,6 @@
 								],
 								"scriptBlockExecutionTimeout": "02:00:00"
 							}
-						},
-						{
-							"name": "incrmtl_fail_after_copy",
-							"type": "Fail",
-							"dependsOn": [
-								{
-									"activity": "update_control_ETL_incrmtl",
-									"dependencyConditions": [
-										"Failed"
-									]
-								}
-							],
-							"userProperties": [],
-							"typeProperties": {
-								"message": {
-									"value": "Incremental load pipeline failed after copy",
-									"type": "Expression"
-								},
-								"errorCode": "10002"
-							}
-						},
-						{
-							"name": "error_update_control_etl",
-							"type": "Script",
-							"dependsOn": [
-								{
-									"activity": "incrmtl_fail_after_copy",
-									"dependencyConditions": [
-										"Succeeded"
-									]
-								}
-							],
-							"policy": {
-								"timeout": "0.12:00:00",
-								"retry": 0,
-								"retryIntervalInSeconds": 30,
-								"secureOutput": false,
-								"secureInput": false
-							},
-							"userProperties": [],
-							"linkedServiceName": {
-								"referenceName": "LS_Azuresql",
-								"type": "LinkedServiceReference"
-							},
-							"typeProperties": {
-								"scripts": [
-									{
-										"type": "Query",
-										"text": {
-											"value": "update dbo.control_ETL set error_message = @{concat(activity('incrmtl_fail_after_copy').output.errorCode,'_',activity('incrmtl_fail_after_copy').output.message)} where source_schema = @{pipeline().parameters.source_schema} and source_table = @{pipeline().parameters.source_table}",
-											"type": "Expression"
-										}
-									}
-								],
-								"scriptBlockExecutionTimeout": "02:00:00"
-							}
 						}
 					]
 				}
@@ -273,9 +217,6 @@
 				"type": "string"
 			},
 			"cdc_column": {
-				"type": "string"
-			},
-			"updated_at": {
 				"type": "string"
 			},
 			"last_watermark": {
