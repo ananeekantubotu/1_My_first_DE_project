@@ -96,65 +96,6 @@
 														}
 													}
 												}
-											},
-											{
-												"name": "Full_fail_after_copy",
-												"type": "Fail",
-												"dependsOn": [
-													{
-														"activity": "Execute Pipeline_full",
-														"dependencyConditions": [
-															"Failed"
-														]
-													}
-												],
-												"userProperties": [],
-												"typeProperties": {
-													"message": {
-														"value": "Full load Pipeline failed after copy",
-														"type": "Expression"
-													},
-													"errorCode": {
-														"value": "10003",
-														"type": "Expression"
-													}
-												}
-											},
-											{
-												"name": "error_update_control_ETL_full",
-												"type": "Script",
-												"dependsOn": [
-													{
-														"activity": "Full_fail_after_copy",
-														"dependencyConditions": [
-															"Succeeded"
-														]
-													}
-												],
-												"policy": {
-													"timeout": "0.12:00:00",
-													"retry": 0,
-													"retryIntervalInSeconds": 30,
-													"secureOutput": false,
-													"secureInput": false
-												},
-												"userProperties": [],
-												"linkedServiceName": {
-													"referenceName": "LS_Azuresql",
-													"type": "LinkedServiceReference"
-												},
-												"typeProperties": {
-													"scripts": [
-														{
-															"type": "Query",
-															"text": {
-																"value": "update dbo.control_ETL set error_message = @{concat(activity('Full_fail_after_copy').output.errorCode,'_',activity('Full_fail_after_copy').output.message)} where source_schema = '@{item().source_schema}' and source_table = '@{item().source_table}'",
-																"type": "Expression"
-															}
-														}
-													],
-													"scriptBlockExecutionTimeout": "02:00:00"
-												}
 											}
 										]
 									},
@@ -212,33 +153,13 @@
 												}
 											},
 											{
-												"name": "incrmtl_fail_after_copy",
-												"type": "Fail",
+												"name": "Web_incrmtl",
+												"type": "WebActivity",
 												"dependsOn": [
 													{
 														"activity": "Execute Pipeline_incrmtl",
 														"dependencyConditions": [
 															"Failed"
-														]
-													}
-												],
-												"userProperties": [],
-												"typeProperties": {
-													"message": {
-														"value": "Incremental load pipeline failed after copy",
-														"type": "Expression"
-													},
-													"errorCode": "10002"
-												}
-											},
-											{
-												"name": "error_update_control_etl",
-												"type": "Script",
-												"dependsOn": [
-													{
-														"activity": "incrmtl_fail_after_copy",
-														"dependencyConditions": [
-															"Succeeded"
 														]
 													}
 												],
@@ -250,21 +171,12 @@
 													"secureInput": false
 												},
 												"userProperties": [],
-												"linkedServiceName": {
-													"referenceName": "LS_Azuresql",
-													"type": "LinkedServiceReference"
-												},
 												"typeProperties": {
-													"scripts": [
-														{
-															"type": "Query",
-															"text": {
-																"value": "update dbo.control_ETL set error_message = @{concat(activity('incrmtl_fail_after_copy').output.errorCode,'_',activity('incrmtl_fail_after_copy').output.message)} where source_schema = '@{item().source_schema}' and source_table = '@{item().source_table}'",
-																"type": "Expression"
-															}
-														}
-													],
-													"scriptBlockExecutionTimeout": "02:00:00"
+													"method": "POST",
+													"body": {
+														"value": "{\n    \"pipelineName\" : @{pipeline().Pipeline},\n    \"pipelineRunID\" : @{pipeline().RunId},\n    \"Status\" : @{},\n    \"Error Message\" : \"Failed while copying the data\",\n    \"Load Type\" : @{},\n    \"Schema\" : ,\n    \"Table\" :\n}",
+														"type": "Expression"
+													}
 												}
 											}
 										]
@@ -305,23 +217,67 @@
 				}
 			},
 			{
-				"name": "pipeline_fails",
-				"type": "Fail",
+				"name": "App alert",
+				"type": "WebActivity",
+				"state": "Inactive",
+				"onInactiveMarkAs": "Succeeded",
 				"dependsOn": [
 					{
-						"activity": "get_table_names",
+						"activity": "Failed_count",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"body": {
+						"value": "{\n    \"pipelineName\" : @{pipeline().Pipeline},\n    \"pipelineRunID\" : @{pipeline().RunId},\n    \"Status\" : @{activity('Failed_count').output.status},\n    \"Error Message\" : \"Failed while copying the data\",\n    \"Load Type\" : @{activity('loadtype_check').output.expression},\n    \"Schema\" : ,\n    \"Table\" :\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Failed_count",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "looping_tablename",
 						"dependencyConditions": [
 							"Failed"
 						]
 					}
 				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
 				"userProperties": [],
 				"typeProperties": {
-					"message": {
-						"value": "'Failed to fetch meta data details of tables from SQL server'",
-						"type": "Expression"
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select source_schema,source_table,error_message from control_ETL where status = 'Failed'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
 					},
-					"errorCode": "10001"
+					"dataset": {
+						"referenceName": "DS_sql",
+						"type": "DatasetReference"
+					}
 				}
 			}
 		],

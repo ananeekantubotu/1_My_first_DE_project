@@ -192,9 +192,121 @@
 								],
 								"scriptBlockExecutionTimeout": "02:00:00"
 							}
+						},
+						{
+							"name": "error_after_update_incrmtl",
+							"type": "Script",
+							"dependsOn": [
+								{
+									"activity": "update_control_ETL_incrmtl",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"linkedServiceName": {
+								"referenceName": "LS_Azuresql",
+								"type": "LinkedServiceReference"
+							},
+							"typeProperties": {
+								"scripts": [
+									{
+										"type": "Query",
+										"text": {
+											"value": "update dbo.control_ETL set error_message = 'Incremental load Pipeline failed while updating', status = 'Failed' where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+											"type": "Expression"
+										}
+									}
+								],
+								"scriptBlockExecutionTimeout": "02:00:00"
+							}
+						},
+						{
+							"name": "Web_after_update_ETL",
+							"type": "WebActivity",
+							"dependsOn": [
+								{
+									"activity": "error_after_update_incrmtl",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": []
 						}
 					]
 				}
+			},
+			{
+				"name": "error_after_copy_incrmtl",
+				"type": "Script",
+				"dependsOn": [
+					{
+						"activity": "Copy_incremental",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"linkedServiceName": {
+					"referenceName": "LS_Azuresql",
+					"type": "LinkedServiceReference"
+				},
+				"typeProperties": {
+					"scripts": [
+						{
+							"type": "Query",
+							"text": {
+								"value": "update dbo.control_ETL set error_message = 'Incremental load Pipeline failed while copying', status = 'Failed' where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+								"type": "Expression"
+							}
+						}
+					],
+					"scriptBlockExecutionTimeout": "02:00:00"
+				}
+			},
+			{
+				"name": "Web_after copy",
+				"type": "WebActivity",
+				"dependsOn": [
+					{
+						"activity": "error_after_copy_incrmtl",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": []
 			}
 		],
 		"parameters": {
