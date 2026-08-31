@@ -151,33 +151,6 @@
 														}
 													}
 												}
-											},
-											{
-												"name": "Web_incrmtl",
-												"type": "WebActivity",
-												"dependsOn": [
-													{
-														"activity": "Execute Pipeline_incrmtl",
-														"dependencyConditions": [
-															"Failed"
-														]
-													}
-												],
-												"policy": {
-													"timeout": "0.12:00:00",
-													"retry": 0,
-													"retryIntervalInSeconds": 30,
-													"secureOutput": false,
-													"secureInput": false
-												},
-												"userProperties": [],
-												"typeProperties": {
-													"method": "POST",
-													"body": {
-														"value": "{\n    \"pipelineName\" : @{pipeline().Pipeline},\n    \"pipelineRunID\" : @{pipeline().RunId},\n    \"Status\" : @{},\n    \"Error Message\" : \"Failed while copying the data\",\n    \"Load Type\" : @{},\n    \"Schema\" : ,\n    \"Table\" :\n}",
-														"type": "Expression"
-													}
-												}
 											}
 										]
 									}
