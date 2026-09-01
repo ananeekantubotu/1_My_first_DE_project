@@ -1,0 +1,282 @@
+{
+	"name": "Data_ingestion_loop_web",
+	"properties": {
+		"activities": [
+			{
+				"name": "looping_tablename",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "get_table_names",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('get_table_names').output.value",
+						"type": "Expression"
+					},
+					"batchCount": 10,
+					"activities": [
+						{
+							"name": "current_timestamp",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"policy": {
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "currentdate",
+								"value": {
+									"value": "@formatDateTime(utcNow(),'yyyyMMdd_HHmmss')",
+									"type": "Expression"
+								}
+							}
+						},
+						{
+							"name": "loadtype_check",
+							"type": "Switch",
+							"dependsOn": [
+								{
+									"activity": "current_timestamp",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@toUpper(item().load_type)",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "FULL",
+										"activities": [
+											{
+												"name": "Execute Pipeline_full",
+												"type": "ExecutePipeline",
+												"dependsOn": [],
+												"policy": {
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"pipeline": {
+														"referenceName": "Full_load",
+														"type": "PipelineReference"
+													},
+													"waitOnCompletion": true,
+													"parameters": {
+														"source_schema": {
+															"value": "@item().source_schema",
+															"type": "Expression"
+														},
+														"source_table": {
+															"value": "@item().source_table",
+															"type": "Expression"
+														},
+														"target_container": {
+															"value": "@item().target_container",
+															"type": "Expression"
+														},
+														"target_folder": {
+															"value": "@item().target_folder",
+															"type": "Expression"
+														},
+														"currentdate_file": {
+															"value": "@variables('currentdate')",
+															"type": "Expression"
+														},
+														"load_type": {
+															"value": "@item().load_type",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "INCREMENTAL",
+										"activities": [
+											{
+												"name": "Execute Pipeline_incrmtl",
+												"type": "ExecutePipeline",
+												"dependsOn": [],
+												"policy": {
+													"secureInput": false
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"pipeline": {
+														"referenceName": "Incremental_load",
+														"type": "PipelineReference"
+													},
+													"waitOnCompletion": true,
+													"parameters": {
+														"source_schema": {
+															"value": "@item().source_schema",
+															"type": "Expression"
+														},
+														"source_table": {
+															"value": "@item().source_table",
+															"type": "Expression"
+														},
+														"target_container": {
+															"value": "@item().target_container",
+															"type": "Expression"
+														},
+														"target_folder": {
+															"value": "@item().target_folder",
+															"type": "Expression"
+														},
+														"currentdate_file": {
+															"value": "@variables('currentdate')",
+															"type": "Expression"
+														},
+														"from_date": {
+															"value": "@pipeline().parameters.from_date",
+															"type": "Expression"
+														},
+														"cdc_column": {
+															"value": "@item().cdc_column",
+															"type": "Expression"
+														},
+														"last_watermark": {
+															"value": "@item().last_watermark",
+															"type": "Expression"
+														},
+														"load_type": {
+															"value": "@item().load_type",
+															"type": "Expression"
+														}
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "get_table_names",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select a.source_schema,a.source_table,a.load_type,a.cdc_column,a.target_container,a.target_folder,b.last_watermark,b.updated_at from control_ETL as b INNER join control_rawdata as a on a.source_schema = b.source_schema and a.source_table = b.source_table where a.is_active > 0 and (a.load_type = 'incremental' or (a.load_type = 'full' and isnull(b.is_initial_load_completed,0)=0))",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_sql",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "App alert",
+				"type": "WebActivity",
+				"state": "Inactive",
+				"onInactiveMarkAs": "Succeeded",
+				"dependsOn": [
+					{
+						"activity": "Failed_count",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"body": {
+						"value": "{\n    \"pipelineName\" : @{pipeline().Pipeline},\n    \"pipelineRunID\" : @{pipeline().RunId},\n    \"Status\" : @{activity('Failed_count').output.status},\n    \"Error Message\" : \"Failed while copying the data\",\n    \"Load Type\" : @{activity('loadtype_check').output.expression},\n    \"Schema\" : ,\n    \"Table\" :\n}",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Failed_count",
+				"type": "Lookup",
+				"state": "Inactive",
+				"onInactiveMarkAs": "Succeeded",
+				"dependsOn": [
+					{
+						"activity": "looping_tablename",
+						"dependencyConditions": [
+							"Failed"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select source_schema,source_table,error_message from control_ETL where status = 'Failed'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_sql",
+						"type": "DatasetReference"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"from_date": {
+				"type": "string"
+			}
+		},
+		"variables": {
+			"lastcdc_tobe_updated": {
+				"type": "String"
+			},
+			"currentdate": {
+				"type": "String"
+			}
+		},
+		"annotations": []
+	}
+}
