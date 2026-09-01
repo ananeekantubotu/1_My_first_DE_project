@@ -193,10 +193,21 @@
 					"timeout": "0.12:00:00",
 					"retry": 0,
 					"retryIntervalInSeconds": 30,
-					"secureOutput": false,
+					"secureOutput": true,
 					"secureInput": false
 				},
-				"userProperties": []
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": {
+						"value": "https://azurekeyvaultyt.vault.azure.net/secrets/HTTP-post-req-URL/e851e4e13c094905aef7f9d62bed4c90",
+						"type": "Expression"
+					},
+					"body": {
+						"value": "{\n    \"pipelineName\" : @{pipeline().Pipeline},\n    \"pipelineRunID\" : @{pipeline().RunId},\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Full load Pipeline failed while copying\",\n    \"Load Type\" : @{pipeline().parameters.load_type},\n    \"Schema\" : @{pipeline().parameters.source_schema},\n    \"Table\" : @{pipeline().parameters.source_table},\n    \"Failure at\" : @{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\n}",
+						"type": "Expression"
+					}
+				}
 			},
 			{
 				"name": "Web_full_update",
@@ -213,10 +224,18 @@
 					"timeout": "0.12:00:00",
 					"retry": 0,
 					"retryIntervalInSeconds": 30,
-					"secureOutput": false,
+					"secureOutput": true,
 					"secureInput": false
 				},
-				"userProperties": []
+				"userProperties": [],
+				"typeProperties": {
+					"method": "POST",
+					"url": "https://azurekeyvaultyt.vault.azure.net/secrets/HTTP-post-req-URL/e851e4e13c094905aef7f9d62bed4c90",
+					"body": {
+						"value": "{\n    \"pipelineName\" : @{pipeline().Pipeline},\n    \"pipelineRunID\" : @{pipeline().RunId},\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Full load Pipeline failed while updating\",\n    \"Load Type\" : @{pipeline().parameters.load_type},\n    \"Schema\" : @{pipeline().parameters.source_schema},\n    \"Table\" : @{pipeline().parameters.source_table},\n    \"Failure at\" : @{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\n}",
+						"type": "Expression"
+					}
+				}
 			}
 		],
 		"parameters": {
@@ -233,6 +252,9 @@
 				"type": "string"
 			},
 			"currentdate_file": {
+				"type": "string"
+			},
+			"load_type": {
 				"type": "string"
 			}
 		},

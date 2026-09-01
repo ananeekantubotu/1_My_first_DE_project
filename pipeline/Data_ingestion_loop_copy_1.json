@@ -93,6 +93,10 @@
 														"currentdate_file": {
 															"value": "@variables('currentdate')",
 															"type": "Expression"
+														},
+														"load_type": {
+															"value": "@item().load_type",
+															"type": "Expression"
 														}
 													}
 												}
@@ -147,6 +151,10 @@
 														},
 														"last_watermark": {
 															"value": "@item().last_watermark",
+															"type": "Expression"
+														},
+														"load_type": {
+															"value": "@item().load_type",
 															"type": "Expression"
 														}
 													}
