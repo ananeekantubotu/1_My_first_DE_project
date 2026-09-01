@@ -185,7 +185,7 @@
 									{
 										"type": "Query",
 										"text": {
-											"value": "update dbo.control_ETL set status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}', updated_at = getutcdate(), last_Watermark = '@{activity('last_watermark').output.firstRow.cdc}' where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+											"value": "update dbo.control_ETL set status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}', updated_at = getutcdate(), last_Watermark = '@{activity('last_watermark').output.firstRow.cdc}', error_message = NULL where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
 											"type": "Expression"
 										}
 									}
