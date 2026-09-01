@@ -255,7 +255,7 @@
 									"type": "Expression"
 								},
 								"body": {
-									"value": "{\n    \"pipelineName\" : \"@{pipeline().Pipeline}\",\n    \"pipelineRunID\" : \"@{pipeline().RunId}\",\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Incremental load Pipeline failed while updating\",\n    \"Load Type\" : \"@{pipeline().parameters.load_type}\",\n    \"Schema\" : \"@{pipeline().parameters.source_schema}\",\n    \"Table\" : \"@{pipeline().parameters.source_table}\",\n    \"Failure at\" : \"@{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\"\n}",
+									"value": "{\n    \"alert-type\": \"Child\",\n    \"pipelineName\" : \"@{pipeline().Pipeline}\",\n    \"pipelineRunID\" : \"@{pipeline().RunId}\",\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Incremental load Pipeline failed while updating\",\n    \"Load Type\" : \"@{pipeline().parameters.load_type}\",\n    \"Schema\" : \"@{pipeline().parameters.source_schema}\",\n    \"Table\" : \"@{pipeline().parameters.source_table}\",\n    \"Failure at\" : \"@{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\"\n}",
 									"type": "Expression"
 								}
 							}
@@ -362,7 +362,7 @@
 						"type": "Expression"
 					},
 					"body": {
-						"value": "{\n    \"pipelineName\" : \"@{pipeline().Pipeline}\",\n    \"pipelineRunID\" : \"@{pipeline().RunId}\",\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Incremental load Pipeline failed while copying\",\n    \"Load Type\" : \"@{pipeline().parameters.load_type}\",\n    \"Schema\" : \"@{pipeline().parameters.source_schema}\",\n    \"Table\" : \"@{pipeline().parameters.source_table}\",\n    \"Failure at\" : \"@{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\"\n}",
+						"value": "{\n    \"alert-type\": \"Child\",\n    \"pipelineName\" : \"@{pipeline().Pipeline}\",\n    \"pipelineRunID\" : \"@{pipeline().RunId}\",\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Incremental load Pipeline failed while copying\",\n    \"Load Type\" : \"@{pipeline().parameters.load_type}\",\n    \"Schema\" : \"@{pipeline().parameters.source_schema}\",\n    \"Table\" : \"@{pipeline().parameters.source_table}\",\n    \"Failure at\" : \"@{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\"\n}",
 						"type": "Expression"
 					}
 				}
