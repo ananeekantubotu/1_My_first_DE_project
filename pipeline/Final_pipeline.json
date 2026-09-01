@@ -184,7 +184,7 @@
 					"source": {
 						"type": "AzureSqlSource",
 						"sqlReaderQuery": {
-							"value": "select a.source_schema,a.source_table,a.load_type,a.cdc_column,a.target_container,a.target_folder,b.last_watermark,b.updated_at from control_ETL as b INNER join control_rawdata as a on a.source_schema = b.source_schema and a.source_table = b.source_table where a.is_active > 0 and (a.load_type = 'incremental' or (a.load_type = 'full' and isnull(b.is_initial_load_completed,0)=0)) and a.load_type = 'incremental'",
+							"value": "select a.source_schema,a.source_table,a.load_type,a.cdc_column,a.target_container,a.target_folder,b.last_watermark,b.updated_at from control_ETL as b INNER join control_rawdata as a on a.source_schema = b.source_schema and a.source_table = b.source_table where a.is_active > 0 and (a.load_type = 'incremental' or (a.load_type = 'full' and isnull(b.is_initial_load_completed,0)=0))",
 							"type": "Expression"
 						},
 						"queryTimeout": "02:00:00",
