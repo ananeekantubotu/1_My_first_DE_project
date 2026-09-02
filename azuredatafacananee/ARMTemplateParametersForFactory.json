@@ -22,6 +22,9 @@
 		},
 		"LS_Azuresql_properties_typeProperties_userName": {
 			"value": "ananee"
+		},
+		"LS_Keyvault_properties_typeProperties_baseUrl": {
+			"value": "https://azurekeyvaultyt.vault.azure.net/"
 		}
 	}
 }

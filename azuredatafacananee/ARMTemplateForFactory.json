@@ -30,6 +30,10 @@
 		"LS_Azuresql_properties_typeProperties_userName": {
 			"type": "string",
 			"defaultValue": "ananee"
+		},
+		"LS_Keyvault_properties_typeProperties_baseUrl": {
+			"type": "string",
+			"defaultValue": "https://azurekeyvaultyt.vault.azure.net/"
 		}
 	},
 	"variables": {
@@ -1305,67 +1309,12 @@
 																"currentdate_file": {
 																	"value": "@variables('currentdate')",
 																	"type": "Expression"
+																},
+																"load_type": {
+																	"value": "@item().load_type",
+																	"type": "Expression"
 																}
 															}
-														}
-													},
-													{
-														"name": "Full_fail_after_copy",
-														"type": "Fail",
-														"dependsOn": [
-															{
-																"activity": "Execute Pipeline_full",
-																"dependencyConditions": [
-																	"Failed"
-																]
-															}
-														],
-														"userProperties": [],
-														"typeProperties": {
-															"message": {
-																"value": "Full load Pipeline failed after copy",
-																"type": "Expression"
-															},
-															"errorCode": {
-																"value": "10003",
-																"type": "Expression"
-															}
-														}
-													},
-													{
-														"name": "error_update_control_ETL_full",
-														"type": "Script",
-														"dependsOn": [
-															{
-																"activity": "Full_fail_after_copy",
-																"dependencyConditions": [
-																	"Succeeded"
-																]
-															}
-														],
-														"policy": {
-															"timeout": "0.12:00:00",
-															"retry": 0,
-															"retryIntervalInSeconds": 30,
-															"secureOutput": false,
-															"secureInput": false
-														},
-														"userProperties": [],
-														"linkedServiceName": {
-															"referenceName": "LS_Azuresql",
-															"type": "LinkedServiceReference"
-														},
-														"typeProperties": {
-															"scripts": [
-																{
-																	"type": "Query",
-																	"text": {
-																		"value": "update dbo.control_ETL set error_message = @{concat(activity('Full_fail_after_copy').output.errorCode,'_',activity('Full_fail_after_copy').output.message)} where source_schema = '@{item().source_schema}' and source_table = '@{item().source_table}'",
-																		"type": "Expression"
-																	}
-																}
-															],
-															"scriptBlockExecutionTimeout": "02:00:00"
 														}
 													}
 												]
@@ -1419,64 +1368,239 @@
 																"last_watermark": {
 																	"value": "@item().last_watermark",
 																	"type": "Expression"
+																},
+																"load_type": {
+																	"value": "@item().load_type",
+																	"type": "Expression"
 																}
 															}
 														}
-													},
+													}
+												]
+											}
+										]
+									}
+								}
+							]
+						}
+					},
+					{
+						"name": "get_table_names",
+						"type": "Lookup",
+						"dependsOn": [],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"source": {
+								"type": "AzureSqlSource",
+								"sqlReaderQuery": {
+									"value": "select a.source_schema,a.source_table,a.load_type,a.cdc_column,a.target_container,a.target_folder,b.last_watermark,b.updated_at from control_ETL as b INNER join control_rawdata as a on a.source_schema = b.source_schema and a.source_table = b.source_table where a.is_active > 0 and (a.load_type = 'incremental' or (a.load_type = 'full' and isnull(b.is_initial_load_completed,0)=0))",
+									"type": "Expression"
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "DS_sql",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					}
+				],
+				"policy": {
+					"elapsedTimeMetric": {}
+				},
+				"parameters": {
+					"from_date": {
+						"type": "string"
+					}
+				},
+				"variables": {
+					"lastcdc_tobe_updated": {
+						"type": "String"
+					},
+					"currentdate": {
+						"type": "String"
+					}
+				},
+				"annotations": []
+			},
+			"dependsOn": [
+				"[concat(variables('factoryId'), '/datasets/DS_sql')]",
+				"[concat(variables('factoryId'), '/pipelines/Full_load')]",
+				"[concat(variables('factoryId'), '/pipelines/Incremental_load')]"
+			]
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/Final_pipeline')]",
+			"type": "Microsoft.DataFactory/factories/pipelines",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"activities": [
+					{
+						"name": "looping_tablename",
+						"type": "ForEach",
+						"dependsOn": [
+							{
+								"activity": "get_table_names",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"items": {
+								"value": "@activity('get_table_names').output.value",
+								"type": "Expression"
+							},
+							"batchCount": 10,
+							"activities": [
+								{
+									"name": "current_timestamp",
+									"type": "SetVariable",
+									"dependsOn": [],
+									"policy": {
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"variableName": "currentdate",
+										"value": {
+											"value": "@formatDateTime(utcNow(),'yyyyMMdd_HHmmss')",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "loadtype_check",
+									"type": "Switch",
+									"dependsOn": [
+										{
+											"activity": "current_timestamp",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"userProperties": [],
+									"typeProperties": {
+										"on": {
+											"value": "@toUpper(item().load_type)",
+											"type": "Expression"
+										},
+										"cases": [
+											{
+												"value": "FULL",
+												"activities": [
 													{
-														"name": "incrmtl_fail_after_copy",
-														"type": "Fail",
-														"dependsOn": [
-															{
-																"activity": "Execute Pipeline_incrmtl",
-																"dependencyConditions": [
-																	"Failed"
-																]
-															}
-														],
-														"userProperties": [],
-														"typeProperties": {
-															"message": {
-																"value": "Incremental load pipeline failed after copy",
-																"type": "Expression"
-															},
-															"errorCode": "10002"
-														}
-													},
-													{
-														"name": "error_update_control_etl",
-														"type": "Script",
-														"dependsOn": [
-															{
-																"activity": "incrmtl_fail_after_copy",
-																"dependencyConditions": [
-																	"Succeeded"
-																]
-															}
-														],
+														"name": "Execute Pipeline_full",
+														"type": "ExecutePipeline",
+														"dependsOn": [],
 														"policy": {
-															"timeout": "0.12:00:00",
-															"retry": 0,
-															"retryIntervalInSeconds": 30,
-															"secureOutput": false,
 															"secureInput": false
 														},
 														"userProperties": [],
-														"linkedServiceName": {
-															"referenceName": "LS_Azuresql",
-															"type": "LinkedServiceReference"
-														},
 														"typeProperties": {
-															"scripts": [
-																{
-																	"type": "Query",
-																	"text": {
-																		"value": "update dbo.control_ETL set error_message = @{concat(activity('incrmtl_fail_after_copy').output.errorCode,'_',activity('incrmtl_fail_after_copy').output.message)} where source_schema = '@{item().source_schema}' and source_table = '@{item().source_table}'",
-																		"type": "Expression"
-																	}
+															"pipeline": {
+																"referenceName": "Full_load",
+																"type": "PipelineReference"
+															},
+															"waitOnCompletion": true,
+															"parameters": {
+																"source_schema": {
+																	"value": "@item().source_schema",
+																	"type": "Expression"
+																},
+																"source_table": {
+																	"value": "@item().source_table",
+																	"type": "Expression"
+																},
+																"target_container": {
+																	"value": "@item().target_container",
+																	"type": "Expression"
+																},
+																"target_folder": {
+																	"value": "@item().target_folder",
+																	"type": "Expression"
+																},
+																"currentdate_file": {
+																	"value": "@variables('currentdate')",
+																	"type": "Expression"
+																},
+																"load_type": {
+																	"value": "@item().load_type",
+																	"type": "Expression"
 																}
-															],
-															"scriptBlockExecutionTimeout": "02:00:00"
+															}
+														}
+													}
+												]
+											},
+											{
+												"value": "INCREMENTAL",
+												"activities": [
+													{
+														"name": "Execute Pipeline_incrmtl",
+														"type": "ExecutePipeline",
+														"dependsOn": [],
+														"policy": {
+															"secureInput": false
+														},
+														"userProperties": [],
+														"typeProperties": {
+															"pipeline": {
+																"referenceName": "Incremental_load",
+																"type": "PipelineReference"
+															},
+															"waitOnCompletion": true,
+															"parameters": {
+																"source_schema": {
+																	"value": "@item().source_schema",
+																	"type": "Expression"
+																},
+																"source_table": {
+																	"value": "@item().source_table",
+																	"type": "Expression"
+																},
+																"target_container": {
+																	"value": "@item().target_container",
+																	"type": "Expression"
+																},
+																"target_folder": {
+																	"value": "@item().target_folder",
+																	"type": "Expression"
+																},
+																"currentdate_file": {
+																	"value": "@variables('currentdate')",
+																	"type": "Expression"
+																},
+																"from_date": {
+																	"value": "@pipeline().parameters.from_date",
+																	"type": "Expression"
+																},
+																"cdc_column": {
+																	"value": "@item().cdc_column",
+																	"type": "Expression"
+																},
+																"last_watermark": {
+																	"value": "@item().last_watermark",
+																	"type": "Expression"
+																},
+																"load_type": {
+																	"value": "@item().load_type",
+																	"type": "Expression"
+																}
+															}
 														}
 													}
 												]
@@ -1518,23 +1642,115 @@
 						}
 					},
 					{
-						"name": "pipeline_fails",
-						"type": "Fail",
+						"name": "Failed_tables",
+						"type": "Lookup",
 						"dependsOn": [
 							{
-								"activity": "get_table_names",
+								"activity": "looping_tablename",
 								"dependencyConditions": [
 									"Failed"
 								]
 							}
 						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
 						"userProperties": [],
 						"typeProperties": {
-							"message": {
-								"value": "'Failed to fetch meta data details of tables from SQL server'",
+							"source": {
+								"type": "AzureSqlSource",
+								"sqlReaderQuery": {
+									"value": "select source_schema,source_table,error_message from control_ETL where status = 'Failed'",
+									"type": "Expression"
+								},
+								"queryTimeout": "02:00:00",
+								"partitionOption": "None"
+							},
+							"dataset": {
+								"referenceName": "DS_sql",
+								"type": "DatasetReference",
+								"parameters": {}
+							},
+							"firstRowOnly": false
+						}
+					},
+					{
+						"name": "failed_tables_send_alerts",
+						"type": "IfCondition",
+						"dependsOn": [
+							{
+								"activity": "Failed_tables",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"userProperties": [],
+						"typeProperties": {
+							"expression": {
+								"value": "@greater(activity('Failed_tables').output.count,0)",
 								"type": "Expression"
 							},
-							"errorCode": "10001"
+							"ifTrueActivities": [
+								{
+									"name": "send_alert",
+									"type": "WebActivity",
+									"dependsOn": [
+										{
+											"activity": "get_HTTP_url",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "POST",
+										"headers": {},
+										"url": {
+											"value": "@activity('get_HTTP_url').output.value",
+											"type": "Expression"
+										},
+										"body": {
+											"value": "{\n    \"alert-type\": \"Master\",\n    \"pipelineName\": \"@{pipeline().Pipeline}\",\n    \"pipelineRunID\": \"@{pipeline().RunId}\",\n    \"Status\": \"Failed\",\n    \"Error Message\": \"One or more tables failed\",\n    \"Failed Tables\": @{string(activity('Failed_tables').output.value)}\n}",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "get_HTTP_url",
+									"type": "WebActivity",
+									"dependsOn": [],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "GET",
+										"headers": {},
+										"url": "https://azurekeyvaultyt.vault.azure.net/secrets/HTTP-post-req-URL/e851e4e13c094905aef7f9d62bed4c90?api-version=7.5",
+										"authentication": {
+											"type": "MSI",
+											"resource": "https://vault.azure.net"
+										}
+									}
+								}
+							]
 						}
 					}
 				],
@@ -1559,7 +1775,6 @@
 			"dependsOn": [
 				"[concat(variables('factoryId'), '/datasets/DS_sql')]",
 				"[concat(variables('factoryId'), '/pipelines/Full_load')]",
-				"[concat(variables('factoryId'), '/linkedServices/LS_Azuresql')]",
 				"[concat(variables('factoryId'), '/pipelines/Incremental_load')]"
 			]
 		},
@@ -1585,7 +1800,7 @@
 							"source": {
 								"type": "AzureSqlSource",
 								"sqlReaderQuery": {
-									"value": "select * from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table}\n\n",
+									"value": "select * from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table}",
 									"type": "Expression"
 								},
 								"queryTimeout": "02:00:00",
@@ -1666,12 +1881,224 @@
 								{
 									"type": "Query",
 									"text": {
-										"value": "update dbo.control_ETL set status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}', updated_at = getutcdate(),is_initial_load_completed = 1 where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+										"value": "update dbo.control_ETL set status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}', updated_at = getutcdate(),is_initial_load_completed = 1, error_message = NULL where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
 										"type": "Expression"
 									}
 								}
 							],
 							"scriptBlockExecutionTimeout": "02:00:00"
+						}
+					},
+					{
+						"name": "error_after_copy_full",
+						"type": "Script",
+						"dependsOn": [
+							{
+								"activity": "Copy_full",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"linkedServiceName": {
+							"referenceName": "LS_Azuresql",
+							"type": "LinkedServiceReference"
+						},
+						"typeProperties": {
+							"scripts": [
+								{
+									"type": "Query",
+									"text": {
+										"value": "update dbo.control_ETL set error_message = 'Full load Pipeline failed while copying', status = 'Failed' where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+										"type": "Expression"
+									}
+								}
+							],
+							"scriptBlockExecutionTimeout": "02:00:00"
+						}
+					},
+					{
+						"name": "error_after_update_full",
+						"type": "Script",
+						"dependsOn": [
+							{
+								"activity": "update_control_ETL_full",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"linkedServiceName": {
+							"referenceName": "LS_Azuresql",
+							"type": "LinkedServiceReference"
+						},
+						"typeProperties": {
+							"scripts": [
+								{
+									"type": "Query",
+									"text": {
+										"value": "update dbo.control_ETL set error_message = 'Full load Pipeline failed while updating', status = 'Failed' where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+										"type": "Expression"
+									}
+								}
+							],
+							"scriptBlockExecutionTimeout": "02:00:00"
+						}
+					},
+					{
+						"name": "Web_full_copy",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "get_http_url",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "@activity('get_http_url').output.value",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\n    \"alert-type\": \"Child\",\n    \"pipelineName\" : \"@{pipeline().Pipeline}\",\n    \"pipelineRunID\" : \"@{pipeline().RunId}\",\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Full load Pipeline failed while copying\",\n    \"Load Type\" : \"@{pipeline().parameters.load_type}\",\n    \"Schema\" : \"@{pipeline().parameters.source_schema}\",\n    \"Table\" : \"@{pipeline().parameters.source_table}\",\n    \"Failure at\" : \"@{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\"\n}",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "Web_full_update",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "get_http_url_1",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": true,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "@activity('get_http_url_1').output.value",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\n    \"alert-type\": \"Child\",\n    \"pipelineName\" : \"@{pipeline().Pipeline}\",\n    \"pipelineRunID\" : \"@{pipeline().RunId}\",\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Full load Pipeline failed while updating\",\n    \"Load Type\" : \"@{pipeline().parameters.load_type}\",\n    \"Schema\" : \"@{pipeline().parameters.source_schema}\",\n    \"Table\" : \"@{pipeline().parameters.source_table}\",\n    \"Failure at\" : \"@{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\"\n}",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "get_http_url",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "error_after_copy_full",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": true,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "GET",
+							"headers": {},
+							"linkedServices": [
+								{
+									"referenceName": "LS_Keyvault",
+									"type": "LinkedServiceReference"
+								}
+							],
+							"url": {
+								"value": "https://azurekeyvaultyt.vault.azure.net/secrets/HTTP-post-req-URL/e851e4e13c094905aef7f9d62bed4c90?api-version=7.5",
+								"type": "Expression"
+							},
+							"authentication": {
+								"type": "MSI",
+								"resource": "https://vault.azure.net"
+							}
+						}
+					},
+					{
+						"name": "get_http_url_1",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "error_after_update_full",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": true,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "GET",
+							"headers": {},
+							"linkedServices": [
+								{
+									"referenceName": "LS_Keyvault",
+									"type": "LinkedServiceReference"
+								}
+							],
+							"url": {
+								"value": "https://azurekeyvaultyt.vault.azure.net/secrets/HTTP-post-req-URL/e851e4e13c094905aef7f9d62bed4c90?api-version=7.5",
+								"type": "Expression"
+							},
+							"authentication": {
+								"type": "MSI",
+								"resource": "https://vault.azure.net"
+							}
 						}
 					}
 				],
@@ -1693,6 +2120,9 @@
 					},
 					"currentdate_file": {
 						"type": "string"
+					},
+					"load_type": {
+						"type": "string"
 					}
 				},
 				"annotations": []
@@ -1700,7 +2130,8 @@
 			"dependsOn": [
 				"[concat(variables('factoryId'), '/datasets/DS_sql')]",
 				"[concat(variables('factoryId'), '/datasets/DS_ADLS_gen2')]",
-				"[concat(variables('factoryId'), '/linkedServices/LS_Azuresql')]"
+				"[concat(variables('factoryId'), '/linkedServices/LS_Azuresql')]",
+				"[concat(variables('factoryId'), '/linkedServices/LS_Keyvault')]"
 			]
 		},
 		{
@@ -1725,7 +2156,7 @@
 							"source": {
 								"type": "AzureSqlSource",
 								"sqlReaderQuery": {
-									"value": "select * from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table} where @{pipeline().parameters.cdc_column} > '@{if(empty(pipeline().parameters.from_date),pipeline().parameters.last_watermark,pipeline().parameters.from_date)}'\n\n",
+									"value": "select * from @{pipeline().parameters.source_schema}.@{pipeline().parameters.source_table} where @{pipeline().parameters.cdc_column} > '@{if(empty(pipeline().parameters.from_date),pipeline().parameters.last_watermark,pipeline().parameters.from_date)}'",
 									"type": "Expression"
 								},
 								"queryTimeout": "02:00:00",
@@ -1894,15 +2325,227 @@
 											{
 												"type": "Query",
 												"text": {
-													"value": "update dbo.control_ETL set status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}', updated_at = getutcdate(), last_Watermark = '@{activity('last_watermark').output.firstRow.cdc}' where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+													"value": "update dbo.control_ETL set status = 'Success', last_run_pipeline_id = '@{pipeline().RunId}', updated_at = getutcdate(), last_Watermark = '@{activity('last_watermark').output.firstRow.cdc}', error_message = NULL where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
 													"type": "Expression"
 												}
 											}
 										],
 										"scriptBlockExecutionTimeout": "02:00:00"
 									}
+								},
+								{
+									"name": "error_after_update_incrmtl",
+									"type": "Script",
+									"dependsOn": [
+										{
+											"activity": "update_control_ETL_incrmtl",
+											"dependencyConditions": [
+												"Failed"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": false,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"linkedServiceName": {
+										"referenceName": "LS_Azuresql",
+										"type": "LinkedServiceReference"
+									},
+									"typeProperties": {
+										"scripts": [
+											{
+												"type": "Query",
+												"text": {
+													"value": "update dbo.control_ETL set error_message = 'Incremental load Pipeline failed while updating', status = 'Failed' where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+													"type": "Expression"
+												}
+											}
+										],
+										"scriptBlockExecutionTimeout": "02:00:00"
+									}
+								},
+								{
+									"name": "Web_after_update_ETL",
+									"type": "WebActivity",
+									"dependsOn": [
+										{
+											"activity": "get_http_url_copy1",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": true,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "POST",
+										"headers": {},
+										"url": {
+											"value": "@activity('get_http_url_copy1').output.value",
+											"type": "Expression"
+										},
+										"body": {
+											"value": "{\n    \"alert-type\": \"Child\",\n    \"pipelineName\" : \"@{pipeline().Pipeline}\",\n    \"pipelineRunID\" : \"@{pipeline().RunId}\",\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Incremental load Pipeline failed while updating\",\n    \"Load Type\" : \"@{pipeline().parameters.load_type}\",\n    \"Schema\" : \"@{pipeline().parameters.source_schema}\",\n    \"Table\" : \"@{pipeline().parameters.source_table}\",\n    \"Failure at\" : \"@{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\"\n}",
+											"type": "Expression"
+										}
+									}
+								},
+								{
+									"name": "get_http_url_copy1",
+									"type": "WebActivity",
+									"dependsOn": [
+										{
+											"activity": "error_after_update_incrmtl",
+											"dependencyConditions": [
+												"Succeeded"
+											]
+										}
+									],
+									"policy": {
+										"timeout": "0.12:00:00",
+										"retry": 0,
+										"retryIntervalInSeconds": 30,
+										"secureOutput": true,
+										"secureInput": false
+									},
+									"userProperties": [],
+									"typeProperties": {
+										"method": "GET",
+										"headers": {},
+										"linkedServices": [
+											{
+												"referenceName": "LS_Keyvault",
+												"type": "LinkedServiceReference"
+											}
+										],
+										"url": {
+											"value": "https://azurekeyvaultyt.vault.azure.net/secrets/HTTP-post-req-URL/e851e4e13c094905aef7f9d62bed4c90?api-version=7.5",
+											"type": "Expression"
+										},
+										"authentication": {
+											"type": "MSI",
+											"resource": "https://vault.azure.net"
+										}
+									}
 								}
 							]
+						}
+					},
+					{
+						"name": "error_after_copy_incrmtl",
+						"type": "Script",
+						"dependsOn": [
+							{
+								"activity": "Copy_incremental",
+								"dependencyConditions": [
+									"Failed"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"linkedServiceName": {
+							"referenceName": "LS_Azuresql",
+							"type": "LinkedServiceReference"
+						},
+						"typeProperties": {
+							"scripts": [
+								{
+									"type": "Query",
+									"text": {
+										"value": "update dbo.control_ETL set error_message = 'Incremental load Pipeline failed while copying', status = 'Failed' where source_schema = '@{pipeline().parameters.source_schema}' and source_table = '@{pipeline().parameters.source_table}'",
+										"type": "Expression"
+									}
+								}
+							],
+							"scriptBlockExecutionTimeout": "02:00:00"
+						}
+					},
+					{
+						"name": "Web_after copy",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "get_http_url",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": true,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "POST",
+							"headers": {},
+							"url": {
+								"value": "@activity('get_http_url').output.value",
+								"type": "Expression"
+							},
+							"body": {
+								"value": "{\n    \"alert-type\": \"Child\",\n    \"pipelineName\" : \"@{pipeline().Pipeline}\",\n    \"pipelineRunID\" : \"@{pipeline().RunId}\",\n    \"Status\" : \"Failed\",\n    \"Error Message\" : \"Incremental load Pipeline failed while copying\",\n    \"Load Type\" : \"@{pipeline().parameters.load_type}\",\n    \"Schema\" : \"@{pipeline().parameters.source_schema}\",\n    \"Table\" : \"@{pipeline().parameters.source_table}\",\n    \"Failure at\" : \"@{formatDateTime(utcNow(),'yyyy-MM-dd_HH:mm:ss')}\"\n}",
+								"type": "Expression"
+							}
+						}
+					},
+					{
+						"name": "get_http_url",
+						"type": "WebActivity",
+						"dependsOn": [
+							{
+								"activity": "error_after_copy_incrmtl",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": true,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"method": "GET",
+							"headers": {},
+							"linkedServices": [
+								{
+									"referenceName": "LS_Keyvault",
+									"type": "LinkedServiceReference"
+								}
+							],
+							"url": {
+								"value": "https://azurekeyvaultyt.vault.azure.net/secrets/HTTP-post-req-URL/e851e4e13c094905aef7f9d62bed4c90?api-version=7.5",
+								"type": "Expression"
+							},
+							"authentication": {
+								"type": "MSI",
+								"resource": "https://vault.azure.net"
+							}
 						}
 					}
 				],
@@ -1933,6 +2576,9 @@
 					},
 					"last_watermark": {
 						"type": "string"
+					},
+					"load_type": {
+						"type": "string"
 					}
 				},
 				"annotations": []
@@ -1940,44 +2586,9 @@
 			"dependsOn": [
 				"[concat(variables('factoryId'), '/datasets/DS_sql')]",
 				"[concat(variables('factoryId'), '/datasets/DS_ADLS_gen2')]",
-				"[concat(variables('factoryId'), '/linkedServices/LS_Azuresql')]"
+				"[concat(variables('factoryId'), '/linkedServices/LS_Azuresql')]",
+				"[concat(variables('factoryId'), '/linkedServices/LS_Keyvault')]"
 			]
-		},
-		{
-			"name": "[concat(parameters('factoryName'), '/pipeline1')]",
-			"type": "Microsoft.DataFactory/factories/pipelines",
-			"apiVersion": "2018-06-01",
-			"properties": {
-				"activities": [
-					{
-						"name": "Set variable1",
-						"type": "SetVariable",
-						"dependsOn": [],
-						"policy": {
-							"secureOutput": false,
-							"secureInput": false
-						},
-						"userProperties": [],
-						"typeProperties": {
-							"variableName": "date",
-							"value": {
-								"value": "@formatDateTime(utcNow(),'yyyyMMdd_HHmmss')",
-								"type": "Expression"
-							}
-						}
-					}
-				],
-				"policy": {
-					"elapsedTimeMetric": {}
-				},
-				"variables": {
-					"date": {
-						"type": "String"
-					}
-				},
-				"annotations": []
-			},
-			"dependsOn": []
 		},
 		{
 			"name": "[concat(parameters('factoryName'), '/DS_ADLS_gen2')]",
@@ -2175,6 +2786,19 @@
 						"type": "SecureString",
 						"value": "[parameters('LS_Azuresql_password')]"
 					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/LS_Keyvault')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureKeyVault",
+				"typeProperties": {
+					"baseUrl": "[parameters('LS_Keyvault_properties_typeProperties_baseUrl')]"
 				}
 			},
 			"dependsOn": []
